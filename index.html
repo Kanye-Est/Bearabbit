@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐰❤️🐻 Bearabbit Love Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+
+        .game-container {
+            text-align: center;
+            position: relative;
+        }
+
+        .title {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .score-board {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: #ff6b9d;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px white;
+        }
+
+        #gameCanvas {
+            border: 4px solid #ff6b9d;
+            border-radius: 20px;
+            background: linear-gradient(180deg, #fff5f8 0%, #ffe4ec 100%);
+            box-shadow: 0 10px 30px rgba(255, 107, 157, 0.3);
+            display: block;
+            margin: 0 auto;
+        }
+
+        .instructions {
+            margin-top: 20px;
+            font-size: 1rem;
+            color: #ff6b9d;
+        }
+
+        .instructions span {
+            background: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            margin: 0 10px;
+            box-shadow: 0 2px 10px rgba(255, 107, 157, 0.2);
+        }
+
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px 50px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            display: none;
+            z-index: 10;
+        }
+
+        .game-over h2 {
+            color: #ff6b9d;
+            margin-bottom: 15px;
+        }
+
+        .game-over p {
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 1.2rem;
+        }
+
+        .restart-btn {
+            background: linear-gradient(135deg, #ff6b9d 0%, #ff8a80 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1.1rem;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .restart-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .love-message {
+            margin-top: 15px;
+            font-size: 1rem;
+            color: #ff6b9d;
+            font-style: italic;
+            opacity: 0;
+            animation: fadeIn 2s forwards;
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+
+        /* 响应式 */
+        @media (max-width: 600px) {
+            .title { font-size: 1.8rem; }
+            #gameCanvas { width: 100%; max-width: 350px; }
+            .instructions { font-size: 0.9rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1 class="title">🐰 收集爱心 🐻</h1>
+        <div class="score-board">💕 分数: <span id="score">0</span></div>
+        <canvas id="gameCanvas" width="400" height="500"></canvas>
+        <div class="instructions">
+            <span>⬅️ 左移</span>
+            <span>➡️ 右移</span>
+            <span>📱 触屏拖动</span>
+        </div>
+        <div class="love-message">每一个爱心都是给你的 💝</div>
+
+        <div class="game-over" id="gameOver">
+            <h2>🎉 太棒啦！🎉</h2>
+            <p>你收集了 <strong id="finalScore">0</strong> 个爱心！</p>
+            <p style="font-size: 0.9rem;">小旖和小开</p>
+            <button class="restart-btn" onclick="restartGame()">再玩一次 💕</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 游戏状态
+        let score = 0;
+        let gameRunning = true;
+
+        // 里程碑显示
+        let milestoneShown = false;
+        let milestoneTimer = 0;
+
+        // 玩家（可爱的兔子/熊）
+        const player = {
+            x: canvas.width / 2 - 25,
+            y: canvas.height - 80,
+            width: 50,
+            height: 50,
+            speed: 8
+        };
+
+        // 掉落物品
+        let items = [];
+        const itemTypes = [
+            { emoji: '❤️', points: 10 },
+            { emoji: '💕', points: 15 },
+            { emoji: '💖', points: 20 },
+            { emoji: '🌸', points: 5 },
+            { emoji: '⭐', points: 25 }
+        ];
+
+        // 控制状态
+        let keys = { left: false, right: false };
+        let touchX = null;
+
+        // 音效
+        function playSound(type) {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            if (type === 'collect') {
+                oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
+                oscillator.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
+                gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+                oscillator.start(audioCtx.currentTime);
+                oscillator.stop(audioCtx.currentTime + 0.2);
+            } else if (type === 'gameOver') {
+                oscillator.frequency.setValueAtTime(400, audioCtx.currentTime);
+                oscillator.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.3);
+                gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                oscillator.start(audioCtx.currentTime);
+                oscillator.stop(audioCtx.currentTime + 0.5);
+            }
+        }
+
+        // 生成新物品
+        function spawnItem() {
+            if (!gameRunning) return;
+            const type = itemTypes[Math.floor(Math.random() * itemTypes.length)];
+            items.push({
+                x: Math.random() * (canvas.width - 40),
+                y: -40,
+                size: 35,
+                speed: 2 + Math.random() * 2,
+                ...type
+            });
+        }
+
+        // 每 600ms 生成一个物品
+        setInterval(spawnItem, 600);
+
+        // 绘制玩家（可爱的熊兔组合）
+        function drawPlayer() {
+            ctx.font = '40px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            // 根据分数切换角色
+            let emoji;
+            if (score < 50) {
+                emoji = '🐰';  // 小兔子
+            } else if (score < 150) {
+                emoji = '🐻';  // 大熊
+            } else {
+                emoji = '🐰🐻';  // 大熊和小兔子一起！
+            }
+            ctx.fillText(emoji, player.x + player.width / 2, player.y + player.height / 2);
+        }
+
+        // 绘制物品
+        function drawItems() {
+            items.forEach(item => {
+                ctx.font = `${item.size}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(item.emoji, item.x + item.size / 2, item.y + item.size / 2);
+            });
+        }
+
+        // 显示里程碑文字
+        function showMilestone() {
+            if (!milestoneShown || milestoneTimer <= 0) return;
+
+            milestoneTimer--;
+
+            // 淡入淡出效果
+            let opacity = 1;
+            if (milestoneTimer > 100) {
+                opacity = (120 - milestoneTimer) / 20;  // 淡入
+            } else if (milestoneTimer < 20) {
+                opacity = milestoneTimer / 20;  // 淡出
+            }
+
+            // 绘制半透明背景
+            ctx.fillStyle = `rgba(255, 255, 255, ${opacity * 0.9})`;
+            ctx.beginPath();
+            ctx.roundRect(canvas.width / 2 - 150, canvas.height / 2 - 60, 300, 120, 20);
+            ctx.fill();
+
+            // 绘制文字
+            ctx.fillStyle = `rgba(255, 107, 157, ${opacity})`;
+            ctx.font = 'bold 36px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('小旖和小开', canvas.width / 2, canvas.height / 2 - 10);
+
+            ctx.font = '30px Arial';
+            ctx.fillText('💕', canvas.width / 2, canvas.height / 2 + 30);
+        }
+
+        // 更新游戏
+        function update() {
+            if (!gameRunning) return;
+
+            // 检查300分里程碑
+            if (score >= 300 && !milestoneShown) {
+                milestoneShown = true;
+                milestoneTimer = 120;  // 显示2秒（60fps）
+                playSound('gameOver');  // 播放庆祝音效
+            }
+
+            // 检查1000分胜利条件
+            if (score >= 1000) {
+                endGame();
+                return;
+            }
+
+            // 移动玩家
+            if (keys.left && player.x > 0) {
+                player.x -= player.speed;
+            }
+            if (keys.right && player.x < canvas.width - player.width) {
+                player.x += player.speed;
+            }
+
+            // 触摸控制
+            if (touchX !== null) {
+                if (touchX < player.x + player.width / 2 && player.x > 0) {
+                    player.x -= player.speed;
+                } else if (touchX > player.x + player.width / 2 && player.x < canvas.width - player.width) {
+                    player.x += player.speed;
+                }
+            }
+
+            // 更新物品位置
+            items.forEach((item, index) => {
+                item.y += item.speed;
+
+                // 碰撞检测
+                if (item.y + item.size > player.y &&
+                    item.y < player.y + player.height &&
+                    item.x + item.size > player.x &&
+                    item.x < player.x + player.width) {
+                    score += item.points;
+                    document.getElementById('score').textContent = score;
+                    playSound('collect');
+                    items.splice(index, 1);
+                }
+
+                // 移除超出屏幕的物品
+                if (item.y > canvas.height) {
+                    items.splice(index, 1);
+                }
+            });
+        }
+
+        // 绘制森林场景（0-199分）
+        function drawForest() {
+            // 天空渐变
+            const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            skyGradient.addColorStop(0, '#87CEEB');
+            skyGradient.addColorStop(1, '#E0F6FF');
+            ctx.fillStyle = skyGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 云朵
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            drawCloud(50, 80, 30);
+            drawCloud(300, 100, 25);
+
+            // 草地
+            ctx.fillStyle = '#90EE90';
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height);
+            ctx.lineTo(0, canvas.height - 100);
+            ctx.quadraticCurveTo(canvas.width / 2, canvas.height - 120, canvas.width, canvas.height - 100);
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.fill();
+
+            // 树木
+            ctx.font = '30px Arial';
+            ctx.fillText('🌲', 30, canvas.height - 80);
+            ctx.fillText('🌳', 100, canvas.height - 90);
+            ctx.fillText('🌲', 180, canvas.height - 75);
+            ctx.fillText('🌳', 280, canvas.height - 85);
+            ctx.fillText('🌲', 350, canvas.height - 80);
+        }
+
+        // 绘制森林+山场景（200-299分）
+        function drawForestWithMountain() {
+            // 天空渐变
+            const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            skyGradient.addColorStop(0, '#87CEEB');
+            skyGradient.addColorStop(1, '#E0F6FF');
+            ctx.fillStyle = skyGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 云朵
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            drawCloud(50, 80, 30);
+            drawCloud(300, 100, 25);
+
+            // 山脉（根据分数逐渐升高）
+            const mountainProgress = (score - 200) / 100;  // 0到1
+            const mountainHeight = 100 + mountainProgress * 80;
+            const mountainColor = `rgb(${100 - mountainProgress * 30}, ${120 - mountainProgress * 30}, ${140 - mountainProgress * 20})`;
+
+            // 远处的山
+            ctx.fillStyle = mountainColor;
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height);
+            ctx.lineTo(100, canvas.height - mountainHeight);
+            ctx.lineTo(200, canvas.height - mountainHeight * 0.8);
+            ctx.lineTo(300, canvas.height - mountainHeight * 1.1);
+            ctx.lineTo(400, canvas.height);
+            ctx.fill();
+
+            // 草地
+            ctx.fillStyle = '#90EE90';
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height);
+            ctx.lineTo(0, canvas.height - 60);
+            ctx.quadraticCurveTo(canvas.width / 2, canvas.height - 80, canvas.width, canvas.height - 60);
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.fill();
+
+            // 树木（少一些）
+            ctx.font = '25px Arial';
+            ctx.fillText('🌲', 30, canvas.height - 50);
+            ctx.fillText('🌳', 150, canvas.height - 55);
+            ctx.fillText('🌲', 280, canvas.height - 50);
+            ctx.fillText('🌳', 360, canvas.height - 55);
+        }
+
+        // 绘制山顶场景（300+分）
+        function drawMountainTop() {
+            // 日落渐变天空
+            const sunsetGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            sunsetGradient.addColorStop(0, '#FF6B6B');
+            sunsetGradient.addColorStop(0.3, '#FFE66D');
+            sunsetGradient.addColorStop(0.6, '#FFA07A');
+            sunsetGradient.addColorStop(1, '#FFB6C1');
+            ctx.fillStyle = sunsetGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 闪烁的星星
+            const time = Date.now() / 1000;
+            ctx.fillStyle = `rgba(255, 255, 255, ${0.5 + Math.sin(time * 3) * 0.5})`;
+            ctx.font = '15px Arial';
+            ctx.fillText('⭐', 50, 60);
+            ctx.fillText('⭐', 320, 50);
+            ctx.fillText('✨', 150, 80);
+
+            // 彩虹
+            drawRainbow();
+
+            // 山顶
+            ctx.fillStyle = '#8B7355';
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height);
+            ctx.lineTo(150, canvas.height - 180);
+            ctx.lineTo(250, canvas.height - 180);
+            ctx.lineTo(400, canvas.height);
+            ctx.fill();
+
+            // 山顶雪地
+            ctx.fillStyle = '#FFF8DC';
+            ctx.beginPath();
+            ctx.moveTo(170, canvas.height - 180);
+            ctx.lineTo(200, canvas.height - 200);
+            ctx.lineTo(230, canvas.height - 180);
+            ctx.fill();
+
+            // 山顶的小花
+            ctx.font = '15px Arial';
+            ctx.fillText('🌸', 180, canvas.height - 175);
+            ctx.fillText('🌺', 220, canvas.height - 175);
+        }
+
+        // 绘制云朵辅助函数
+        function drawCloud(x, y, size) {
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.arc(x + 30, y - 10, size * 1.2, 0, Math.PI * 2);
+            ctx.arc(x + 60, y, size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 绘制彩虹辅助函数
+        function drawRainbow() {
+            const colors = ['#FF0000', '#FF7F00', '#FFFF00', '#00FF00', '#0000FF', '#4B0082', '#9400D3'];
+            const centerX = 350;
+            const centerY = canvas.height;
+            const radius = 150;
+
+            colors.forEach((color, index) => {
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius - index * 5, Math.PI, 0);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 5;
+                ctx.stroke();
+            });
+        }
+
+        // 主背景绘制函数
+        function drawBackground() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 根据分数阶段绘制不同背景
+            if (score < 200) {
+                drawForest();  // 森林场景
+            } else if (score < 300) {
+                drawForestWithMountain();  // 森林+山
+            } else {
+                drawMountainTop();  // 山顶
+            }
+        }
+
+        // 游戏循环
+        function gameLoop() {
+            drawBackground();
+            drawItems();
+            drawPlayer();
+            showMilestone();  // 显示里程碑
+            update();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 结束游戏
+        function endGame() {
+            gameRunning = false;
+            playSound('gameOver');
+            document.getElementById('finalScore').textContent = score;
+            document.getElementById('gameOver').style.display = 'block';
+        }
+
+        // 重新开始
+        function restartGame() {
+            score = 0;
+            items = [];
+            gameRunning = true;
+            document.getElementById('score').textContent = '0';
+            document.getElementById('gameOver').style.display = 'none';
+        }
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = true;
+            if (e.key === 'ArrowRight' || e.key === 'd') keys.right = true;
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = false;
+            if (e.key === 'ArrowRight' || e.key === 'd') keys.right = false;
+        });
+
+        // 触摸控制
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            touchX = e.touches[0].clientX - rect.left;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            touchX = e.touches[0].clientX - rect.left;
+        });
+
+        canvas.addEventListener('touchend', () => {
+            touchX = null;
+        });
+
+        // 开始游戏
+        gameLoop();
+    </script>
+</body>
+</html>
